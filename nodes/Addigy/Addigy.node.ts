@@ -11,6 +11,7 @@ import {
 import {
 	addigyApiRequest,
 	addigyApiRequestAllItems,
+	extractResponseData,
 	getDevices,
 	getPolicies,
 	getApplications,
@@ -159,7 +160,10 @@ export class Addigy implements INodeType {
 								{},
 								qs,
 							);
-							responseData.forEach((item: IDataObject) => {
+
+							// Ensure we have an array and add each item
+							const devices = Array.isArray(responseData) ? responseData : [];
+							devices.forEach((item: IDataObject) => {
 								returnData.push({ json: item });
 							});
 						} else {
@@ -172,7 +176,9 @@ export class Addigy implements INodeType {
 								{},
 								qs,
 							);
-							const devices = responseData.devices || [];
+
+							// Safely extract devices from response
+							const devices = extractResponseData(responseData, 'devices');
 							devices.forEach((item: IDataObject) => {
 								returnData.push({ json: item });
 							});
@@ -264,7 +270,9 @@ export class Addigy implements INodeType {
 								{},
 								qs,
 							);
-							responseData.forEach((item: IDataObject) => {
+
+							const policies = Array.isArray(responseData) ? responseData : [];
+							policies.forEach((item: IDataObject) => {
 								returnData.push({ json: item });
 							});
 						} else {
@@ -277,7 +285,8 @@ export class Addigy implements INodeType {
 								{},
 								qs,
 							);
-							const policies = responseData.policies || [];
+
+							const policies = extractResponseData(responseData, 'policies');
 							policies.forEach((item: IDataObject) => {
 								returnData.push({ json: item });
 							});
@@ -389,7 +398,9 @@ export class Addigy implements INodeType {
 								{},
 								qs,
 							);
-							responseData.forEach((item: IDataObject) => {
+
+							const alerts = Array.isArray(responseData) ? responseData : [];
+							alerts.forEach((item: IDataObject) => {
 								returnData.push({ json: item });
 							});
 						} else {
@@ -402,7 +413,8 @@ export class Addigy implements INodeType {
 								{},
 								qs,
 							);
-							const alerts = responseData.alerts || [];
+
+							const alerts = extractResponseData(responseData, 'alerts');
 							alerts.forEach((item: IDataObject) => {
 								returnData.push({ json: item });
 							});
@@ -462,7 +474,9 @@ export class Addigy implements INodeType {
 								{},
 								qs,
 							);
-							responseData.forEach((item: IDataObject) => {
+
+							const applications = Array.isArray(responseData) ? responseData : [];
+							applications.forEach((item: IDataObject) => {
 								returnData.push({ json: item });
 							});
 						} else {
@@ -475,7 +489,8 @@ export class Addigy implements INodeType {
 								{},
 								qs,
 							);
-							const applications = responseData.applications || [];
+
+							const applications = extractResponseData(responseData, 'applications');
 							applications.forEach((item: IDataObject) => {
 								returnData.push({ json: item });
 							});
@@ -560,7 +575,9 @@ export class Addigy implements INodeType {
 								'GET',
 								'/facts',
 							);
-							responseData.forEach((item: IDataObject) => {
+
+							const facts = Array.isArray(responseData) ? responseData : [];
+							facts.forEach((item: IDataObject) => {
 								returnData.push({ json: item });
 							});
 						} else {
@@ -573,7 +590,8 @@ export class Addigy implements INodeType {
 								{},
 								qs,
 							);
-							const facts = responseData.facts || [];
+
+							const facts = extractResponseData(responseData, 'facts');
 							facts.forEach((item: IDataObject) => {
 								returnData.push({ json: item });
 							});
@@ -674,7 +692,9 @@ export class Addigy implements INodeType {
 								{},
 								qs,
 							);
-							responseData.forEach((item: IDataObject) => {
+
+							const instructions = Array.isArray(responseData) ? responseData : [];
+							instructions.forEach((item: IDataObject) => {
 								returnData.push({ json: item });
 							});
 						} else {
@@ -687,7 +707,8 @@ export class Addigy implements INodeType {
 								{},
 								qs,
 							);
-							const instructions = responseData.instructions || [];
+
+							const instructions = extractResponseData(responseData, 'instructions');
 							instructions.forEach((item: IDataObject) => {
 								returnData.push({ json: item });
 							});
