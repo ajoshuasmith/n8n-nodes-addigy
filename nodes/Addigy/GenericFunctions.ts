@@ -19,31 +19,21 @@ export async function addigyApiRequest(
 	option: IDataObject = {},
 ): Promise<any> {
 	const credentials = await this.getCredentials('addigyApi');
-	const apiVersion = credentials.apiVersion as string;
 	const baseUrl = credentials.baseUrl as string;
+	const apiToken = credentials.apiToken as string;
 
 	let requestOptions: IHttpRequestOptions = {
 		method,
 		body,
 		qs,
-		url: uri || `${baseUrl}/api/${apiVersion}${resource}`,
+		url: uri || `${baseUrl}/api/v2${resource}`,
 		json: true,
 	};
 
-	if (apiVersion === 'v1') {
-		// API v1 uses client_id and client_secret in query params
-		requestOptions.qs = {
-			...requestOptions.qs,
-			client_id: credentials.clientId,
-			client_secret: credentials.clientSecret,
-		};
-	} else {
-		// API v2 uses Bearer token authentication
-		requestOptions.headers = {
-			Authorization: `Bearer ${credentials.apiToken}`,
-			'Content-Type': 'application/json',
-		};
-	}
+	requestOptions.headers = {
+		'x-api-key': apiToken,
+		'Content-Type': 'application/json',
+	};
 
 	requestOptions = Object.assign({}, requestOptions, option);
 
@@ -65,7 +55,7 @@ export async function addigyApiRequest(
 		if (statusCode === 401) {
 			throw new NodeApiError(this.getNode(), error as JsonObject, {
 				message: `Authentication failed: ${errorMessage}. Please check your API credentials.`,
-				description: 'Invalid or expired API token/credentials',
+				description: 'Invalid or expired API token',
 			});
 		} else if (statusCode === 403) {
 			throw new NodeApiError(this.getNode(), error as JsonObject, {
@@ -101,14 +91,15 @@ export async function addigyApiRequestAllItems(
 ): Promise<any> {
 	const returnData: IDataObject[] = [];
 	let responseData;
-	let offset = 0;
-	const limit = 100;
+	let page = 1;
+	const perPage = 100;
 	let iterationCount = 0;
+	let hasMore = true;
 	const maxIterations = 1000; // Safety limit to prevent infinite loops
 
-	do {
-		query.limit = limit;
-		query.offset = offset;
+	while (hasMore) {
+		query.per_page = perPage;
+		query.page = page;
 
 		try {
 			responseData = await addigyApiRequest.call(this, method, endpoint, body, query);
@@ -141,25 +132,27 @@ export async function addigyApiRequestAllItems(
 		}
 
 		// Check if there are more items to fetch
-		const hasMore =
+		hasMore =
 			responseData?.has_more === true ||
 			responseData?.hasMore === true ||
 			responseData?.pagination?.has_more === true ||
-			(items.length === limit);
+			(responseData?.metadata?.page_count !== undefined &&
+				responseData?.metadata?.page !== undefined &&
+				responseData.metadata.page < responseData.metadata.page_count) ||
+			(items.length === perPage);
 
 		if (!hasMore || items.length === 0) {
 			break;
 		}
 
-		offset += limit;
+		page += 1;
 		iterationCount++;
 
 		// Safety check to prevent infinite loops
 		if (iterationCount >= maxIterations) {
-			console.warn(`Addigy API: Reached maximum iteration limit (${maxIterations}). Returning ${returnData.length} items.`);
 			break;
 		}
-	} while (true);
+	}
 
 	return returnData;
 }
@@ -168,7 +161,7 @@ export function validateJSON(json: string | undefined): any {
 	let result;
 	try {
 		result = JSON.parse(json!);
-	} catch (exception) {
+	} catch {
 		result = undefined;
 	}
 	return result;
@@ -235,9 +228,8 @@ export async function getDevices(
 				name: (device.name as string) || (device.serial_number as string) || `Device ${device.id}`,
 				value: device.id as string,
 			}));
-	} catch (error) {
+	} catch {
 		// Return empty array instead of throwing to prevent UI errors
-		console.error('Error fetching devices:', error);
 		return [];
 	}
 }
@@ -263,9 +255,8 @@ export async function getPolicies(
 				name: (policy.name as string) || `Policy ${policy.id}`,
 				value: policy.id as string,
 			}));
-	} catch (error) {
+	} catch {
 		// Return empty array instead of throwing to prevent UI errors
-		console.error('Error fetching policies:', error);
 		return [];
 	}
 }
@@ -291,9 +282,8 @@ export async function getApplications(
 				name: (app.name as string) || `Application ${app.id}`,
 				value: app.id as string,
 			}));
-	} catch (error) {
+	} catch {
 		// Return empty array instead of throwing to prevent UI errors
-		console.error('Error fetching applications:', error);
 		return [];
 	}
 }

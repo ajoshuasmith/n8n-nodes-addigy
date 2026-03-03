@@ -1,6 +1,6 @@
 {
-  "name": "n8n-nodes-addigy",
-  "version": "1.0.0",
+  "name": "@joshuanode/n8n-nodes-addigy",
+  "version": "0.0.3",
   "description": "n8n community node for Addigy API integration",
   "keywords": [
     "n8n-community-node-package",
@@ -21,6 +21,9 @@
     "url": "git+https://github.com/ajoshuasmith/n8n-nodes-addigy.git"
   },
   "main": "index.js",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc && gulp build:icons",
     "dev": "tsc --watch",
@@ -45,7 +48,7 @@
     "@types/node": "^22.0.0",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
-    "eslint": "^9.0.0",
+    "eslint": "^8.57.1",
     "eslint-plugin-n8n-nodes-base": "^1.16.1",
     "gulp": "^5.0.0",
     "n8n-workflow": "^1.0.0",

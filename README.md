@@ -29,7 +29,7 @@ Follow the [installation guide](https://docs.n8n.io/integrations/community-nodes
 
 1. Go to **Settings > Community Nodes**
 2. Select **Install**
-3. Enter `n8n-nodes-addigy` in **Enter npm package name**
+3. Enter `@joshuanode/n8n-nodes-addigy` in **Enter npm package name**
 4. Agree to the [risks](https://docs.n8n.io/integrations/community-nodes/risks/) of using community nodes
 5. Select **Install**
 
@@ -38,26 +38,26 @@ Follow the [installation guide](https://docs.n8n.io/integrations/community-nodes
 To get started install the package in your n8n root directory:
 
 ```bash
-npm install n8n-nodes-addigy
+npm install @joshuanode/n8n-nodes-addigy
 ```
 
 For Docker-based deployments add the following line before the font installation command in your [n8n Dockerfile](https://github.com/n8n-io/n8n/blob/master/docker/images/n8n/Dockerfile):
 
 ```docker
-RUN cd /usr/local/lib/node_modules/n8n && npm install n8n-nodes-addigy
+RUN cd /usr/local/lib/node_modules/n8n && npm install @joshuanode/n8n-nodes-addigy
 ```
 
 ## Prerequisites
 
 - n8n installed (version 0.220.0 or above)
 - An active Addigy account
-- Addigy API credentials (v2 recommended)
+- Addigy API v2 credentials
 
 ## Credentials
 
 To use this node, you'll need to configure your Addigy API credentials in n8n.
 
-### Generating API v2 Credentials (Recommended)
+### Generating API v2 Credentials
 
 1. Log in to your Addigy account
 2. Navigate to **Account > API Tokens**
@@ -73,31 +73,21 @@ To use this node, you'll need to configure your Addigy API credentials in n8n.
 6. Click **Create Token**
 7. Copy the generated token immediately (you won't be able to see it again)
 
-### Generating API v1 Credentials (Legacy)
-
-> **Note**: API v1 will be deprecated on March 31, 2026. It's recommended to use API v2.
-
-1. Log in to your Addigy account
-2. Navigate to **Account > API Credentials**
-3. Click **Generate New Credentials**
-4. Copy your **Client ID** and **Client Secret**
-
 ### Configuring Credentials in n8n
 
 1. In your n8n workflow, add an Addigy node
 2. Click on **Create New Credential**
-3. Select your API version:
-   - **API v2**: Enter your API Token
-   - **API v1**: Enter your Client ID and Client Secret
-4. Enter your Addigy base URL (default: `https://prod.addigy.com`)
-5. Click **Save**
+3. Enter your API Token
+4. Enter your Organization ID
+5. Enter your Addigy base URL (default: `https://api.addigy.com`)
+6. Click **Save**
 
 The credential will automatically test the connection by attempting to fetch devices.
 
 ## Compatibility
 
 - Tested with n8n version 1.0.0+
-- Works with Addigy API v2 and v1 (v2 recommended)
+- Works with Addigy API v2
 - Compatible with self-hosted and cloud n8n instances
 
 ## Features
@@ -268,7 +258,6 @@ Schedule Trigger → Addigy (Get Alerts) → Filter (compliance alerts) → Jira
 
 ## Known Issues
 
-- **API v1 Deprecation**: API v1 will be deprecated on March 31, 2026. Please migrate to API v2.
 - **Rate Limiting**: The Addigy API has a rate limit of 1,000 requests per 10 seconds. If exceeded, requests will be rejected for 24 hours. The node does not currently implement automatic rate limiting.
 - **Pagination**: When fetching large datasets, be mindful of performance. Use the "Return All" option carefully.
 - **Logo**: The current node icon is a placeholder. Replace with the official Addigy logo from their [media kit](https://addigy.com/media-kit/) for production use.
@@ -277,14 +266,14 @@ Schedule Trigger → Addigy (Get Alerts) → Filter (compliance alerts) → Jira
 
 ### 1.0.0 (Initial Release)
 - Support for 6 main resources: Device, Policy, Alert, Application, Fact, and Instruction
-- API v2 and v1 authentication
+- API v2 authentication
 - Comprehensive filtering and pagination
 - Dynamic dropdowns for devices, policies, and applications
 - Full CRUD operations where applicable
 
 ## Resources
 
-- [Addigy API v2 Documentation](https://support.addigy.com/hc/en-us/articles/16938210315411-API-Documentation-v2)
+- [Addigy API v2 Documentation](https://api.addigy.com/api/v2/documentation/)
 - [Addigy Support](https://support.addigy.com/)
 - [n8n Community Forum](https://community.n8n.io/)
 - [n8n Documentation](https://docs.n8n.io/)

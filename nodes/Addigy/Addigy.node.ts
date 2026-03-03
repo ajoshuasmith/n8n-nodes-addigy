@@ -804,7 +804,7 @@ export class Addigy implements INodeType {
 						returnData.push({ json: responseData });
 					}
 				}
-			} catch (error) {
+			} catch (error: any) {
 				if (this.continueOnFail()) {
 					returnData.push({ json: { error: error.message } });
 					continue;

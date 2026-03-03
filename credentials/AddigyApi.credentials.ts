@@ -10,51 +10,9 @@ export class AddigyApi implements ICredentialType {
 
 	displayName = 'Addigy API';
 
-	documentationUrl = 'https://support.addigy.com/hc/en-us/articles/16938210315411-API-Documentation-v2';
+	documentationUrl = 'https://api.addigy.com/api/v2/documentation/';
 
 	properties: INodeProperties[] = [
-		{
-			displayName: 'API Version',
-			name: 'apiVersion',
-			type: 'options',
-			options: [
-				{
-					name: 'API v2 (Recommended)',
-					value: 'v2',
-				},
-				{
-					name: 'API v1 (Legacy)',
-					value: 'v1',
-				},
-			],
-			default: 'v2',
-			description: 'The Addigy API version to use. v2 is recommended as v1 will be deprecated on March 31, 2026.',
-		},
-		{
-			displayName: 'Client ID',
-			name: 'clientId',
-			type: 'string',
-			default: '',
-			required: true,
-			displayOptions: {
-				show: {
-					apiVersion: ['v1'],
-				},
-			},
-		},
-		{
-			displayName: 'Client Secret',
-			name: 'clientSecret',
-			type: 'string',
-			typeOptions: { password: true },
-			default: '',
-			required: true,
-			displayOptions: {
-				show: {
-					apiVersion: ['v1'],
-				},
-			},
-		},
 		{
 			displayName: 'API Token',
 			name: 'apiToken',
@@ -62,18 +20,21 @@ export class AddigyApi implements ICredentialType {
 			typeOptions: { password: true },
 			default: '',
 			required: true,
-			displayOptions: {
-				show: {
-					apiVersion: ['v2'],
-				},
-			},
-			description: 'API v2 token with appropriate permissions for your use case',
+			description: 'Addigy v2 API token (x-api-key)',
+		},
+		{
+			displayName: 'Organization ID',
+			name: 'organizationId',
+			type: 'string',
+			default: '',
+			required: true,
+			description: 'Organization ID used by organization-scoped API endpoints',
 		},
 		{
 			displayName: 'Base URL',
 			name: 'baseUrl',
 			type: 'string',
-			default: 'https://prod.addigy.com',
+			default: 'https://api.addigy.com',
 			description: 'The base URL for your Addigy instance',
 		},
 	];
@@ -82,18 +43,18 @@ export class AddigyApi implements ICredentialType {
 		type: 'generic',
 		properties: {
 			headers: {
-				Authorization: '={{"Bearer " + $credentials.apiToken}}',
+				'x-api-key': '={{$credentials.apiToken}}',
 			},
 		},
 	};
 
 	test: ICredentialTestRequest = {
 		request: {
-			baseURL: '={{$credentials.baseUrl}}/api/v2',
-			url: '/devices',
+			baseURL: '={{$credentials.baseUrl}}',
+			url: '/api/v2/configuration/permissions',
 			method: 'GET',
-			qs: {
-				limit: 1,
+			headers: {
+				'x-api-key': '={{$credentials.apiToken}}',
 			},
 		},
 	};
