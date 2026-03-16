@@ -10,11 +10,13 @@ import {
 
 import {
 	addigyApiRequest,
-	addigyApiRequestAllItems,
-	extractResponseData,
+	asDataObject,
 	getDevices,
 	getPolicies,
 	getApplications,
+	getDeviceFactKeys,
+	getResponseItems,
+	getResponseMetadata,
 } from './GenericFunctions';
 
 import { deviceOperations, deviceFields } from './descriptions/DeviceDescription';
@@ -23,6 +25,18 @@ import { alertOperations, alertFields } from './descriptions/AlertDescription';
 import { applicationOperations, applicationFields } from './descriptions/ApplicationDescription';
 import { factOperations, factFields } from './descriptions/FactDescription';
 import { instructionOperations, instructionFields } from './descriptions/InstructionDescription';
+import { billingOperations, billingFields } from './descriptions/BillingDescription';
+
+function normalizeAlertStatus(status: string): string {
+	const statusMap: Record<string, string> = {
+		open: 'Unattended',
+		unattended: 'Unattended',
+		acknowledged: 'Acknowledged',
+		resolved: 'Resolved',
+	};
+
+	return statusMap[status.toLowerCase()] ?? status;
+}
 
 export class Addigy implements INodeType {
 	description: INodeTypeDescription = {
@@ -67,6 +81,10 @@ export class Addigy implements INodeType {
 						value: 'application',
 					},
 					{
+						name: 'Billing',
+						value: 'billing',
+					},
+					{
 						name: 'Device',
 						value: 'device',
 					},
@@ -95,10 +113,12 @@ export class Addigy implements INodeType {
 			...applicationFields,
 			...factOperations,
 			...factFields,
-			...instructionOperations,
-			...instructionFields,
-		],
-	};
+				...instructionOperations,
+				...instructionFields,
+				...billingOperations,
+				...billingFields,
+			],
+		};
 
 	methods = {
 		loadOptions: {
@@ -111,6 +131,9 @@ export class Addigy implements INodeType {
 			async getApplications(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
 				return getApplications.call(this);
 			},
+			async getDeviceFactKeys(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+				return getDeviceFactKeys.call(this);
+			},
 		},
 	};
 
@@ -122,122 +145,273 @@ export class Addigy implements INodeType {
 
 		for (let i = 0; i < items.length; i++) {
 			try {
+				const credentials = await this.getCredentials('addigyApi');
+				const organizationId = credentials.organizationId as string;
+
 				if (resource === 'device') {
+					const queryDevices = async (page: number, perPage: number, query: IDataObject = {}) => {
+						return addigyApiRequest.call(
+							this,
+							'POST',
+							`/o/${organizationId}/devices`,
+							{
+								page,
+								per_page: perPage,
+								sort_direction: 'asc',
+								sort_field: 'serial_number',
+								query,
+							},
+						);
+					};
+
 					if (operation === 'get') {
 						const deviceId = this.getNodeParameter('deviceId', i) as string;
-						const responseData = await addigyApiRequest.call(
-							this,
-							'GET',
-							`/devices/${deviceId}`,
-						);
-						returnData.push({ json: responseData });
+						const responseData = await queryDevices(1, 100, { search_any: deviceId });
+						const devices = getResponseItems(responseData);
+						const device =
+							devices.find((item: IDataObject) => item.agentid === deviceId) ||
+							devices.find((item: IDataObject) => item.id === deviceId) ||
+							devices[0];
+
+						if (!device) {
+							throw new Error(`Device not found: ${deviceId}`);
+						}
+
+						returnData.push({ json: device as IDataObject });
 					}
 
 					if (operation === 'getAll') {
 						const returnAll = this.getNodeParameter('returnAll', i);
 						const filters = this.getNodeParameter('filters', i) as IDataObject;
-						const qs: IDataObject = {};
+						const query: IDataObject = {};
+						const auditFilters: IDataObject[] = [];
 
 						if (filters.policyId) {
-							qs.policy_id = filters.policyId;
+							query.policy_id = filters.policyId;
 						}
+
+						const searchTerms: string[] = [];
 						if (filters.serial_number) {
-							qs.serial_number = filters.serial_number;
+							searchTerms.push(filters.serial_number as string);
 						}
 						if (filters.status && filters.status !== 'all') {
-							qs.status = filters.status;
+							searchTerms.push(filters.status as string);
 						}
 						if (filters.device_type) {
-							qs.device_type = filters.device_type;
+							searchTerms.push(filters.device_type as string);
+						}
+						if (searchTerms.length > 0) {
+							query.search_any = searchTerms.join(' ');
+						}
+
+						const factFiltersRaw = (
+							(filters.factFilters as IDataObject | undefined)?.factFilter ||
+							[]
+						) as IDataObject[];
+
+						for (const factFilter of factFiltersRaw) {
+							if (!factFilter.factName) {
+								continue;
+							}
+
+							const auditFilter: IDataObject = {
+								audit_field: factFilter.factName,
+								operation: (factFilter.operator as string) || 'equals',
+								type: (factFilter.type as string) || 'string',
+							};
+
+							if (factFilter.value !== undefined && factFilter.value !== '') {
+								const filterType = (factFilter.type as string) || 'string';
+								if (filterType === 'number') {
+									auditFilter.value = Number(factFilter.value);
+								} else if (filterType === 'boolean') {
+									auditFilter.value = String(factFilter.value).toLowerCase() === 'true';
+								} else {
+									auditFilter.value = factFilter.value;
+								}
+							}
+
+							if (factFilter.rangeValue !== undefined && factFilter.rangeValue !== '') {
+								auditFilter.range_value = factFilter.rangeValue;
+							}
+
+							auditFilters.push(auditFilter);
+						}
+
+						if (auditFilters.length > 0) {
+							query.filters = auditFilters;
 						}
 
 						if (returnAll) {
-							const responseData = await addigyApiRequestAllItems.call(
-								this,
-								'devices',
-								'GET',
-								'/devices',
-								{},
-								qs,
-							);
+							let page = 1;
+							const perPage = 100;
+							let hasMore = true;
 
-							// Ensure we have an array and add each item
-							const devices = Array.isArray(responseData) ? responseData : [];
-							devices.forEach((item: IDataObject) => {
-								returnData.push({ json: item });
-							});
+							while (hasMore) {
+								const responseData = await queryDevices(page, perPage, query);
+
+								const devices = getResponseItems(responseData);
+								devices.forEach((item: IDataObject) => {
+									returnData.push({ json: item });
+								});
+
+								const metadata = getResponseMetadata(responseData);
+								const currentPage = (metadata.page as number) ?? page;
+								const pageCount = (metadata.page_count as number) ?? currentPage;
+								hasMore = devices.length > 0 && currentPage < pageCount;
+
+								if (hasMore) {
+									page += 1;
+								}
+							}
 						} else {
-							const limit = this.getNodeParameter('limit', i);
-							qs.limit = limit;
-							const responseData = await addigyApiRequest.call(
-								this,
-								'GET',
-								'/devices',
-								{},
-								qs,
-							);
+							const limit = this.getNodeParameter('limit', i) as number;
+							const responseData = await queryDevices(1, limit, query);
 
-							// Safely extract devices from response
-							const devices = extractResponseData(responseData, 'devices');
+							const devices = getResponseItems(responseData);
 							devices.forEach((item: IDataObject) => {
 								returnData.push({ json: item });
 							});
 						}
 					}
 
+					if (operation === 'count') {
+						const countFilters = this.getNodeParameter('countFilters', i) as IDataObject;
+						const query: IDataObject = {};
+						const auditFilters: IDataObject[] = [];
+
+						if (countFilters.policyId) {
+							query.policy_id = countFilters.policyId;
+						}
+						if (countFilters.searchAny) {
+							query.search_any = countFilters.searchAny;
+						}
+
+						const factFiltersRaw = (
+							(countFilters.factFilters as IDataObject | undefined)?.factFilter ||
+							[]
+						) as IDataObject[];
+
+						for (const factFilter of factFiltersRaw) {
+							if (!factFilter.factName) {
+								continue;
+							}
+
+							const auditFilter: IDataObject = {
+								audit_field: factFilter.factName,
+								operation: (factFilter.operator as string) || 'equals',
+								type: (factFilter.type as string) || 'string',
+							};
+
+							if (factFilter.value !== undefined && factFilter.value !== '') {
+								const filterType = (factFilter.type as string) || 'string';
+								if (filterType === 'number') {
+									auditFilter.value = Number(factFilter.value);
+								} else if (filterType === 'boolean') {
+									auditFilter.value = String(factFilter.value).toLowerCase() === 'true';
+								} else {
+									auditFilter.value = factFilter.value;
+								}
+							}
+
+							if (factFilter.rangeValue !== undefined && factFilter.rangeValue !== '') {
+								auditFilter.range_value = factFilter.rangeValue;
+							}
+
+							auditFilters.push(auditFilter);
+						}
+
+						if (auditFilters.length > 0) {
+							query.filters = auditFilters;
+						}
+
+						const responseData = await queryDevices(1, 1, query);
+
+						const metadata = getResponseMetadata(responseData);
+						returnData.push({
+							json: {
+								total: (metadata.total as number) ?? 0,
+								metadata,
+							},
+						});
+					}
+
 					if (operation === 'getFacts') {
 						const deviceId = this.getNodeParameter('deviceId', i) as string;
-						const responseData = await addigyApiRequest.call(
-							this,
-							'GET',
-							`/devices/${deviceId}/facts`,
-						);
-						returnData.push({ json: responseData });
+						const responseData = await queryDevices(1, 100, { search_any: deviceId });
+						const devices = getResponseItems(responseData);
+						const device =
+							devices.find((item: IDataObject) => item.agentid === deviceId) ||
+							devices.find((item: IDataObject) => item.id === deviceId) ||
+							devices[0];
+
+						if (!device) {
+							throw new Error(`Device not found: ${deviceId}`);
+						}
+
+						returnData.push({ json: ((device as IDataObject).facts as IDataObject) || {} });
 					}
 
 					if (operation === 'update') {
 						const deviceId = this.getNodeParameter('deviceId', i) as string;
 						const updateFields = this.getNodeParameter('updateFields', i) as IDataObject;
-						const body: IDataObject = {};
-
-						if (updateFields.name) {
-							body.name = updateFields.name;
-						}
-						if (updateFields.policyId) {
-							body.policy_id = updateFields.policyId;
-						}
-						if (updateFields.notes) {
-							body.notes = updateFields.notes;
+						if (!updateFields.policyId) {
+							throw new Error('Device update in API v2 supports policy assignment only. Set Policy in Update Fields.');
 						}
 
-						const responseData = await addigyApiRequest.call(
+						await addigyApiRequest.call(
 							this,
-							'PUT',
-							`/devices/${deviceId}`,
-							body,
+							'POST',
+							`/o/${organizationId}/devices/assign`,
+							{
+								agent_ids: [deviceId],
+								policy_ids: [updateFields.policyId as string],
+							},
 						);
-						returnData.push({ json: responseData });
+
+						returnData.push({
+							json: {
+								success: true,
+								device_id: deviceId,
+								policy_id: updateFields.policyId,
+							},
+						});
 					}
 
 					if (operation === 'runCommand') {
 						const deviceId = this.getNodeParameter('deviceId', i) as string;
 						const command = this.getNodeParameter('command', i) as string;
 						const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
+						const commandMap: Record<string, string> = {
+							restart: 'sudo shutdown -r now',
+							shutdown: 'sudo shutdown -h now',
+							lock: 'pmset displaysleepnow',
+							clear_passcode: '',
+							refresh_facts: '/Library/Addigy/go-agent audit',
+						};
+						const mappedCommand = commandMap[command] ?? command;
+
+						if (!mappedCommand) {
+							throw new Error(`Command "${command}" is not supported by Addigy API v2 shell command execution.`);
+						}
+
 						const body: IDataObject = {
-							command,
+							agent_ids: [deviceId],
+							command: mappedCommand,
+							background: true,
 						};
 
 						if (additionalFields.message) {
-							body.message = additionalFields.message;
+							body.command = `echo "${String(additionalFields.message).replaceAll('"', '\\"')}" && ${mappedCommand}`;
 						}
 
 						const responseData = await addigyApiRequest.call(
 							this,
 							'POST',
-							`/devices/${deviceId}/commands`,
+							`/o/${organizationId}/devices/commands/run`,
 							body,
 						);
-						returnData.push({ json: responseData });
+						returnData.push({ json: asDataObject(responseData) });
 					}
 				}
 
@@ -246,51 +420,45 @@ export class Addigy implements INodeType {
 						const policyId = this.getNodeParameter('policyId', i) as string;
 						const responseData = await addigyApiRequest.call(
 							this,
-							'GET',
-							`/policies/${policyId}`,
+							'POST',
+							'/oa/policies/query',
+							{
+								policies: [policyId],
+							},
 						);
-						returnData.push({ json: responseData });
+						const policies = Array.isArray(responseData) ? responseData : [];
+						if (policies.length === 0) {
+							throw new Error(`Policy not found: ${policyId}`);
+						}
+						returnData.push({ json: policies[0] as IDataObject });
 					}
 
 					if (operation === 'getAll') {
 						const returnAll = this.getNodeParameter('returnAll', i);
 						const filters = this.getNodeParameter('filters', i) as IDataObject;
-						const qs: IDataObject = {};
+						const responseData = await addigyApiRequest.call(
+							this,
+							'POST',
+							'/oa/policies/query',
+							{},
+						);
 
+						let policies = Array.isArray(responseData) ? responseData : [];
 						if (filters.name) {
-							qs.name = filters.name;
+							const search = String(filters.name).toLowerCase();
+							policies = policies.filter((item: IDataObject) =>
+								String(item.name || '').toLowerCase().includes(search),
+							);
 						}
 
-						if (returnAll) {
-							const responseData = await addigyApiRequestAllItems.call(
-								this,
-								'policies',
-								'GET',
-								'/policies',
-								{},
-								qs,
-							);
-
-							const policies = Array.isArray(responseData) ? responseData : [];
-							policies.forEach((item: IDataObject) => {
-								returnData.push({ json: item });
-							});
-						} else {
-							const limit = this.getNodeParameter('limit', i);
-							qs.limit = limit;
-							const responseData = await addigyApiRequest.call(
-								this,
-								'GET',
-								'/policies',
-								{},
-								qs,
-							);
-
-							const policies = extractResponseData(responseData, 'policies');
-							policies.forEach((item: IDataObject) => {
-								returnData.push({ json: item });
-							});
+						if (!returnAll) {
+							const limit = this.getNodeParameter('limit', i) as number;
+							policies = policies.slice(0, limit);
 						}
+
+						policies.forEach((item: IDataObject) => {
+							returnData.push({ json: item });
+						});
 					}
 
 					if (operation === 'create') {
@@ -313,16 +481,18 @@ export class Addigy implements INodeType {
 						const responseData = await addigyApiRequest.call(
 							this,
 							'POST',
-							'/policies',
+							`/o/${organizationId}/policies`,
 							body,
 						);
-						returnData.push({ json: responseData });
+						returnData.push({ json: asDataObject(responseData) });
 					}
 
 					if (operation === 'update') {
 						const policyId = this.getNodeParameter('policyId', i) as string;
 						const updateFields = this.getNodeParameter('updateFields', i) as IDataObject;
-						const body: IDataObject = {};
+						const body: IDataObject = {
+							policy_id: policyId,
+						};
 
 						if (updateFields.name) {
 							body.name = updateFields.name;
@@ -337,10 +507,10 @@ export class Addigy implements INodeType {
 						const responseData = await addigyApiRequest.call(
 							this,
 							'PUT',
-							`/policies/${policyId}`,
+							`/o/${organizationId}/policies`,
 							body,
 						);
-						returnData.push({ json: responseData });
+						returnData.push({ json: asDataObject(responseData) });
 					}
 
 					if (operation === 'delete') {
@@ -348,7 +518,11 @@ export class Addigy implements INodeType {
 						const responseData = await addigyApiRequest.call(
 							this,
 							'DELETE',
-							`/policies/${policyId}`,
+							`/o/${organizationId}/policies`,
+							{},
+							{
+								id: policyId,
+							},
 						);
 						returnData.push({ json: { success: true, ...responseData } });
 					}
@@ -359,62 +533,95 @@ export class Addigy implements INodeType {
 						const alertId = this.getNodeParameter('alertId', i) as string;
 						const responseData = await addigyApiRequest.call(
 							this,
-							'GET',
-							`/alerts/${alertId}`,
+							'POST',
+							'/oa/monitoring/alerts/query',
+							{
+								page: 1,
+								per_page: 50,
+								sort_direction: 'desc',
+								sort_field: 'name',
+								query: {
+									ids: [alertId],
+								},
+							},
 						);
-						returnData.push({ json: responseData });
+						const alerts = getResponseItems(responseData);
+						const alert = alerts.find((item: IDataObject) => item.id === alertId) || alerts[0];
+						if (!alert) {
+							throw new Error(`Alert not found: ${alertId}`);
+						}
+						returnData.push({ json: alert as IDataObject });
 					}
 
 					if (operation === 'getAll') {
 						const returnAll = this.getNodeParameter('returnAll', i);
 						const filters = this.getNodeParameter('filters', i) as IDataObject;
-						const qs: IDataObject = {};
+						const query: IDataObject = {};
 
 						if (filters.deviceId) {
-							qs.device_id = filters.deviceId;
-						}
-						if (filters.policyId) {
-							qs.policy_id = filters.policyId;
+							query.agent_ids = [filters.deviceId as string];
 						}
 						if (filters.status && filters.status !== 'all') {
-							qs.status = filters.status;
-						}
-						if (filters.severity) {
-							qs.severity = filters.severity;
+							query.statuses = [normalizeAlertStatus(filters.status as string)];
 						}
 						if (filters.start_date) {
-							qs.start_date = filters.start_date;
+							query.start_date = filters.start_date;
 						}
 						if (filters.end_date) {
-							qs.end_date = filters.end_date;
+							query.end_date = filters.end_date;
+						}
+						if (filters.severity) {
+							query.category = filters.severity;
 						}
 
 						if (returnAll) {
-							const responseData = await addigyApiRequestAllItems.call(
-								this,
-								'alerts',
-								'GET',
-								'/alerts',
-								{},
-								qs,
-							);
+							let page = 1;
+							const perPage = 100;
+							let hasMore = true;
 
-							const alerts = Array.isArray(responseData) ? responseData : [];
-							alerts.forEach((item: IDataObject) => {
-								returnData.push({ json: item });
-							});
+							while (hasMore) {
+								const responseData = await addigyApiRequest.call(
+									this,
+									'POST',
+									'/oa/monitoring/alerts/query',
+									{
+										page,
+										per_page: perPage,
+										sort_direction: 'desc',
+										sort_field: 'name',
+										query,
+									},
+								);
+
+								const alerts = getResponseItems(responseData);
+								alerts.forEach((item: IDataObject) => {
+									returnData.push({ json: item });
+								});
+
+								const metadata = getResponseMetadata(responseData);
+								const currentPage = (metadata.page as number) ?? page;
+								const pageCount = (metadata.page_count as number) ?? currentPage;
+								hasMore = alerts.length > 0 && currentPage < pageCount;
+								if (hasMore) {
+									page += 1;
+								}
+							}
 						} else {
-							const limit = this.getNodeParameter('limit', i);
-							qs.limit = limit;
+							const limit = this.getNodeParameter('limit', i) as number;
 							const responseData = await addigyApiRequest.call(
 								this,
-								'GET',
-								'/alerts',
-								{},
-								qs,
+								'POST',
+								'/oa/monitoring/alerts/query',
+								{
+									page: 1,
+									per_page: limit,
+									sort_direction: 'desc',
+									sort_field: 'name',
+									query,
+								},
 							);
 
-							const alerts = extractResponseData(responseData, 'alerts');
+							const alerts = getResponseItems(responseData);
 							alerts.forEach((item: IDataObject) => {
 								returnData.push({ json: item });
 							});
@@ -423,22 +630,15 @@ export class Addigy implements INodeType {
 
 					if (operation === 'resolve') {
 						const alertId = this.getNodeParameter('alertId', i) as string;
-						const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
-						const body: IDataObject = {
-							status: 'resolved',
-						};
-
-						if (additionalFields.notes) {
-							body.notes = additionalFields.notes;
-						}
-
 						const responseData = await addigyApiRequest.call(
 							this,
-							'PUT',
-							`/alerts/${alertId}`,
-							body,
+							'POST',
+							`/o/${organizationId}/monitoring/alerts/resolve`,
+							{
+								alert_ids: [alertId],
+							},
 						);
-						returnData.push({ json: responseData });
+						returnData.push({ json: { success: true, response: responseData } });
 					}
 				}
 
@@ -448,49 +648,68 @@ export class Addigy implements INodeType {
 						const responseData = await addigyApiRequest.call(
 							this,
 							'GET',
-							`/applications/${applicationId}`,
+							`/o/${organizationId}/smart-software/${applicationId}`,
 						);
-						returnData.push({ json: responseData });
+						returnData.push({ json: asDataObject(responseData) });
 					}
 
 					if (operation === 'getAll') {
 						const returnAll = this.getNodeParameter('returnAll', i);
 						const filters = this.getNodeParameter('filters', i) as IDataObject;
-						const qs: IDataObject = {};
+						const query: IDataObject = {};
 
 						if (filters.name) {
-							qs.name = filters.name;
-						}
-						if (filters.category && filters.category !== 'all') {
-							qs.category = filters.category;
+							query.name_contains = filters.name;
 						}
 
 						if (returnAll) {
-							const responseData = await addigyApiRequestAllItems.call(
-								this,
-								'applications',
-								'GET',
-								'/applications',
-								{},
-								qs,
-							);
+							let page = 1;
+							const perPage = 100;
+							let hasMore = true;
 
-							const applications = Array.isArray(responseData) ? responseData : [];
-							applications.forEach((item: IDataObject) => {
-								returnData.push({ json: item });
-							});
+							while (hasMore) {
+								const responseData = await addigyApiRequest.call(
+									this,
+									'POST',
+									'/oa/smart-software/query',
+									{
+										page,
+										per_page: perPage,
+										sort_direction: 'asc',
+										sort_field: 'name',
+										query,
+									},
+								);
+
+								const applications = getResponseItems(responseData);
+								applications.forEach((item: IDataObject) => {
+									returnData.push({ json: item });
+								});
+
+								const metadata = getResponseMetadata(responseData);
+								const currentPage = (metadata.page as number) ?? page;
+								const pageCount = (metadata.page_count as number) ?? currentPage;
+								hasMore = applications.length > 0 && currentPage < pageCount;
+								if (hasMore) {
+									page += 1;
+								}
+							}
 						} else {
-							const limit = this.getNodeParameter('limit', i);
-							qs.limit = limit;
+							const limit = this.getNodeParameter('limit', i) as number;
 							const responseData = await addigyApiRequest.call(
 								this,
-								'GET',
-								'/applications',
-								{},
-								qs,
+								'POST',
+								'/oa/smart-software/query',
+								{
+									page: 1,
+									per_page: limit,
+									sort_direction: 'asc',
+									sort_field: 'name',
+									query,
+								},
 							);
 
-							const applications = extractResponseData(responseData, 'applications');
+							const applications = getResponseItems(responseData);
 							applications.forEach((item: IDataObject) => {
 								returnData.push({ json: item });
 							});
@@ -500,98 +719,126 @@ export class Addigy implements INodeType {
 					if (operation === 'deploy') {
 						const applicationId = this.getNodeParameter('applicationId', i) as string;
 						const targetType = this.getNodeParameter('targetType', i) as string;
-						const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
-						const body: IDataObject = {
-							application_id: applicationId,
-						};
-
-						if (targetType === 'device') {
-							const deviceId = this.getNodeParameter('deviceId', i) as string;
-							body.device_id = deviceId;
-						} else {
-							const policyId = this.getNodeParameter('policyId', i) as string;
-							body.policy_id = policyId;
+						if (targetType !== 'policy') {
+							throw new Error('Addigy API v2 supports Smart Software assignment to policy only.');
 						}
-
-						if (additionalFields.install_immediately !== undefined) {
-							body.install_immediately = additionalFields.install_immediately;
-						}
-						if (additionalFields.auto_update !== undefined) {
-							body.auto_update = additionalFields.auto_update;
-						}
+						const policyId = this.getNodeParameter('policyId', i) as string;
 
 						const responseData = await addigyApiRequest.call(
 							this,
 							'POST',
-							'/applications/deploy',
-							body,
+							`/o/${organizationId}/policies/${policyId}/smart-software/${applicationId}`,
 						);
-						returnData.push({ json: responseData });
+						returnData.push({ json: { success: true, response: responseData } });
 					}
 
 					if (operation === 'remove') {
 						const applicationId = this.getNodeParameter('applicationId', i) as string;
 						const targetType = this.getNodeParameter('targetType', i) as string;
-						const body: IDataObject = {
-							application_id: applicationId,
-						};
-
-						if (targetType === 'device') {
-							const deviceId = this.getNodeParameter('deviceId', i) as string;
-							body.device_id = deviceId;
-						} else {
-							const policyId = this.getNodeParameter('policyId', i) as string;
-							body.policy_id = policyId;
+						if (targetType !== 'policy') {
+							throw new Error('Addigy API v2 supports Smart Software unassignment from policy only.');
 						}
+						const policyId = this.getNodeParameter('policyId', i) as string;
 
 						const responseData = await addigyApiRequest.call(
 							this,
-							'POST',
-							'/applications/remove',
-							body,
+							'DELETE',
+							`/o/${organizationId}/policies/${policyId}/smart-software/${applicationId}`,
 						);
-						returnData.push({ json: responseData });
+						returnData.push({ json: { success: true, response: responseData } });
 					}
 				}
 
 				if (resource === 'fact') {
+					const findFactByName = async (factName: string): Promise<IDataObject | undefined> => {
+						const responseData = await addigyApiRequest.call(
+							this,
+							'POST',
+							'/facts/custom/query',
+							{
+								page: 1,
+								per_page: 100,
+								sort_direction: 'asc',
+								sort_field: 'name',
+								query: {
+									name_contains: factName,
+								},
+							},
+						);
+
+						const items = getResponseItems(responseData);
+						const exact = items.find(
+							(item: IDataObject) => String(item.name || '').toLowerCase() === factName.toLowerCase(),
+						);
+						return (exact || items[0]) as IDataObject | undefined;
+					};
+
 					if (operation === 'get') {
 						const factName = this.getNodeParameter('factName', i) as string;
+						const fact = await findFactByName(factName);
+						if (!fact?.id) {
+							throw new Error(`Custom fact not found: ${factName}`);
+						}
+
 						const responseData = await addigyApiRequest.call(
 							this,
 							'GET',
-							`/facts/${factName}`,
+							`/o/${organizationId}/facts/custom/${fact.id as string}`,
 						);
-						returnData.push({ json: responseData });
+						returnData.push({ json: asDataObject(responseData) });
 					}
 
 					if (operation === 'getAll') {
 						const returnAll = this.getNodeParameter('returnAll', i);
 
 						if (returnAll) {
-							const responseData = await addigyApiRequestAllItems.call(
-								this,
-								'facts',
-								'GET',
-								'/facts',
-							);
+							let page = 1;
+							const perPage = 100;
+							let hasMore = true;
 
-							const facts = Array.isArray(responseData) ? responseData : [];
-							facts.forEach((item: IDataObject) => {
-								returnData.push({ json: item });
-							});
+							while (hasMore) {
+								const responseData = await addigyApiRequest.call(
+									this,
+									'POST',
+									'/facts/custom/query',
+									{
+										page,
+										per_page: perPage,
+										sort_direction: 'asc',
+										sort_field: 'name',
+										query: {},
+									},
+								);
+
+								const facts = getResponseItems(responseData);
+								facts.forEach((item: IDataObject) => {
+									returnData.push({ json: item });
+								});
+
+								const metadata = getResponseMetadata(responseData);
+								const currentPage = (metadata.page as number) ?? page;
+								const pageCount = (metadata.page_count as number) ?? currentPage;
+								hasMore = facts.length > 0 && currentPage < pageCount;
+								if (hasMore) {
+									page += 1;
+								}
+							}
 						} else {
-							const limit = this.getNodeParameter('limit', i);
-							const qs: IDataObject = { limit };
+							const limit = this.getNodeParameter('limit', i) as number;
 							const responseData = await addigyApiRequest.call(
 								this,
-								'GET',
-								'/facts',
-								{},
-								qs,
+								'POST',
+								'/facts/custom/query',
+								{
+									page: 1,
+									per_page: limit,
+									sort_direction: 'asc',
+									sort_field: 'name',
+									query: {},
+								},
 							);
 
-							const facts = extractResponseData(responseData, 'facts');
+							const facts = getResponseItems(responseData);
 							facts.forEach((item: IDataObject) => {
 								returnData.push({ json: item });
 							});
@@ -605,56 +852,72 @@ export class Addigy implements INodeType {
 						const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
 						const body: IDataObject = {
 							name,
-							type,
-							script,
+							return_type: type,
 						};
 
 						if (additionalFields.description) {
-							body.description = additionalFields.description;
+							body.notes = additionalFields.description;
 						}
-						if (additionalFields.frequency) {
-							body.frequency = additionalFields.frequency;
+						if (script) {
+							body.notes = body.notes
+								? `${String(body.notes)}\n\nScript:\n${script}`
+								: `Script:\n${script}`;
 						}
 
 						const responseData = await addigyApiRequest.call(
 							this,
 							'POST',
-							'/facts',
+							`/o/${organizationId}/facts/custom`,
 							body,
 						);
-						returnData.push({ json: responseData });
+						returnData.push({ json: asDataObject(responseData) });
 					}
 
 					if (operation === 'update') {
 						const factName = this.getNodeParameter('factName', i) as string;
 						const updateFields = this.getNodeParameter('updateFields', i) as IDataObject;
-						const body: IDataObject = {};
+						const existingFact = await findFactByName(factName);
+						if (!existingFact?.id) {
+							throw new Error(`Custom fact not found: ${factName}`);
+						}
+
+						const body: IDataObject = {
+							id: existingFact.id as string,
+						};
 
 						if (updateFields.description) {
-							body.description = updateFields.description;
+							body.notes = updateFields.description;
 						}
 						if (updateFields.script) {
-							body.script = updateFields.script;
-						}
-						if (updateFields.frequency) {
-							body.frequency = updateFields.frequency;
+							body.notes = body.notes
+								? `${String(body.notes)}\n\nScript:\n${String(updateFields.script)}`
+								: `Script:\n${String(updateFields.script)}`;
 						}
 
 						const responseData = await addigyApiRequest.call(
 							this,
 							'PUT',
-							`/facts/${factName}`,
+							`/o/${organizationId}/facts/custom`,
 							body,
 						);
-						returnData.push({ json: responseData });
+						returnData.push({ json: asDataObject(responseData) });
 					}
 
 					if (operation === 'delete') {
 						const factName = this.getNodeParameter('factName', i) as string;
+						const existingFact = await findFactByName(factName);
+						if (!existingFact?.id) {
+							throw new Error(`Custom fact not found: ${factName}`);
+						}
+
 						const responseData = await addigyApiRequest.call(
 							this,
 							'DELETE',
-							`/facts/${factName}`,
+							`/o/${organizationId}/facts/custom`,
+							{},
+							{
+								id: existingFact.id as string,
+							},
 						);
 						returnData.push({ json: { success: true, ...responseData } });
 					}
@@ -666,50 +929,68 @@ export class Addigy implements INodeType {
 						const responseData = await addigyApiRequest.call(
 							this,
 							'GET',
-							`/instructions/${instructionId}`,
+							`/oa/community/scripts/${instructionId}`,
 						);
-						returnData.push({ json: responseData });
+						returnData.push({ json: asDataObject(responseData) });
 					}
 
 					if (operation === 'getAll') {
 						const returnAll = this.getNodeParameter('returnAll', i);
 						const filters = this.getNodeParameter('filters', i) as IDataObject;
-						const qs: IDataObject = {};
-
+						const query: IDataObject = {};
 						if (filters.name) {
-							qs.name = filters.name;
-						}
-						if (filters.category) {
-							qs.category = filters.category;
+							query.search_text = filters.name;
 						}
 
 						if (returnAll) {
-							const responseData = await addigyApiRequestAllItems.call(
-								this,
-								'instructions',
-								'GET',
-								'/instructions',
-								{},
-								qs,
-							);
+							let page = 1;
+							const perPage = 100;
+							let hasMore = true;
 
-							const instructions = Array.isArray(responseData) ? responseData : [];
-							instructions.forEach((item: IDataObject) => {
-								returnData.push({ json: item });
-							});
+							while (hasMore) {
+								const responseData = await addigyApiRequest.call(
+									this,
+									'POST',
+									'/oa/community/scripts/query',
+									{
+										page,
+										per_page: perPage,
+										sort_direction: 'asc',
+										sort_fields: ['name'],
+										query,
+									},
+								);
+
+								const items = getResponseItems(responseData);
+								items.forEach((item: IDataObject) => {
+									returnData.push({ json: item });
+								});
+
+								const metadata = getResponseMetadata(responseData);
+								const currentPage = (metadata.page as number) ?? page;
+								const pageCount = (metadata.page_count as number) ?? currentPage;
+								hasMore = items.length > 0 && currentPage < pageCount;
+								if (hasMore) {
+									page += 1;
+								}
+							}
 						} else {
-							const limit = this.getNodeParameter('limit', i);
-							qs.limit = limit;
+							const limit = this.getNodeParameter('limit', i) as number;
 							const responseData = await addigyApiRequest.call(
 								this,
-								'GET',
-								'/instructions',
-								{},
-								qs,
+								'POST',
+								'/oa/community/scripts/query',
+								{
+									page: 1,
+									per_page: limit,
+									sort_direction: 'asc',
+									sort_fields: ['name'],
+									query,
+								},
 							);
 
-							const instructions = extractResponseData(responseData, 'instructions');
-							instructions.forEach((item: IDataObject) => {
+							const items = getResponseItems(responseData);
+							items.forEach((item: IDataObject) => {
 								returnData.push({ json: item });
 							});
 						}
@@ -719,55 +1000,31 @@ export class Addigy implements INodeType {
 						const name = this.getNodeParameter('name', i) as string;
 						const script = this.getNodeParameter('script', i) as string;
 						const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
+						const categories = additionalFields.category
+							? [additionalFields.category as string]
+							: ['General'];
 						const body: IDataObject = {
-							name,
-							script,
+							commands: [
+								{
+									name,
+									text: script,
+									categories,
+									description: (additionalFields.description as string) || undefined,
+								},
+							],
 						};
-
-						if (additionalFields.description) {
-							body.description = additionalFields.description;
-						}
-						if (additionalFields.category) {
-							body.category = additionalFields.category;
-						}
-						if (additionalFields.requires_user_context !== undefined) {
-							body.requires_user_context = additionalFields.requires_user_context;
-						}
 
 						const responseData = await addigyApiRequest.call(
 							this,
 							'POST',
-							'/instructions',
+							`/o/${organizationId}/scripts`,
 							body,
 						);
-						returnData.push({ json: responseData });
+						returnData.push({ json: asDataObject(responseData) });
 					}
 
 					if (operation === 'update') {
-						const instructionId = this.getNodeParameter('instructionId', i) as string;
-						const updateFields = this.getNodeParameter('updateFields', i) as IDataObject;
-						const body: IDataObject = {};
-
-						if (updateFields.name) {
-							body.name = updateFields.name;
-						}
-						if (updateFields.description) {
-							body.description = updateFields.description;
-						}
-						if (updateFields.script) {
-							body.script = updateFields.script;
-						}
-						if (updateFields.category) {
-							body.category = updateFields.category;
-						}
-
-						const responseData = await addigyApiRequest.call(
-							this,
-							'PUT',
-							`/instructions/${instructionId}`,
-							body,
-						);
-						returnData.push({ json: responseData });
+						throw new Error('Instruction update is not exposed as a direct API v2 endpoint. Use create/delete flow.');
 					}
 
 					if (operation === 'delete') {
@@ -775,7 +1032,11 @@ export class Addigy implements INodeType {
 						const responseData = await addigyApiRequest.call(
 							this,
 							'DELETE',
-							`/instructions/${instructionId}`,
+							`/o/${organizationId}/scripts`,
+							{},
+							{
+								id: instructionId,
+							},
 						);
 						returnData.push({ json: { success: true, ...responseData } });
 					}
@@ -783,30 +1044,79 @@ export class Addigy implements INodeType {
 					if (operation === 'execute') {
 						const instructionId = this.getNodeParameter('instructionId', i) as string;
 						const targetType = this.getNodeParameter('targetType', i) as string;
-						const body: IDataObject = {
-							instruction_id: instructionId,
-						};
+						if (targetType !== 'device') {
+							throw new Error('Instruction execute in API v2 supports device target only.');
+						}
+						const deviceId = this.getNodeParameter('deviceId', i) as string;
 
-						if (targetType === 'device') {
-							const deviceId = this.getNodeParameter('deviceId', i) as string;
-							body.device_id = deviceId;
-						} else {
-							const policyId = this.getNodeParameter('policyId', i) as string;
-							body.policy_id = policyId;
+						const scriptData = await addigyApiRequest.call(
+							this,
+							'GET',
+							`/oa/community/scripts/${instructionId}`,
+						);
+						const scriptObject = asDataObject(scriptData);
+						const scriptText =
+							(scriptObject.text as string) ||
+							(scriptObject.script as string) ||
+							(scriptObject.command as string);
+
+						if (!scriptText) {
+							throw new Error(`Could not retrieve executable script text for instruction ${instructionId}`);
 						}
 
 						const responseData = await addigyApiRequest.call(
 							this,
 							'POST',
-							'/instructions/execute',
-							body,
+							`/o/${organizationId}/devices/commands/run`,
+							{
+								agent_ids: [deviceId],
+								command: scriptText,
+								background: true,
+							},
 						);
-						returnData.push({ json: responseData });
+						returnData.push({ json: asDataObject(responseData) });
 					}
 				}
-			} catch (error: any) {
+
+				if (resource === 'billing') {
+					if (operation === 'getData') {
+						const responseData = await addigyApiRequest.call(
+							this,
+							'GET',
+							`/o/${organizationId}/billing/data`,
+						);
+						returnData.push({ json: asDataObject(responseData) });
+					}
+
+					if (operation === 'getAccount') {
+						const responseData = await addigyApiRequest.call(
+							this,
+							'GET',
+							`/o/${organizationId}/billing/account`,
+						);
+						returnData.push({ json: asDataObject(responseData) });
+					}
+
+					if (operation === 'getInvoices') {
+						const responseData = await addigyApiRequest.call(
+							this,
+							'GET',
+							`/o/${organizationId}/billing/invoices`,
+						);
+
+						if (Array.isArray(responseData)) {
+							responseData.forEach((item: IDataObject) => {
+								returnData.push({ json: item });
+							});
+						} else {
+							returnData.push({ json: asDataObject(responseData) });
+						}
+					}
+				}
+			} catch (error: unknown) {
 				if (this.continueOnFail()) {
-					returnData.push({ json: { error: error.message } });
+					const message = error instanceof Error ? error.message : 'Unknown error';
+					returnData.push({ json: { error: message } });
 					continue;
 				}
 				throw error;

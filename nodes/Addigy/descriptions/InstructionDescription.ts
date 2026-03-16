@@ -42,12 +42,6 @@ export const instructionOperations: INodeProperties[] = [
 				description: 'Get many instructions',
 				action: 'Get many instructions',
 			},
-			{
-				name: 'Update',
-				value: 'update',
-				description: 'Update an instruction',
-				action: 'Update an instruction',
-			},
 		],
 		default: 'getAll',
 	},
@@ -118,13 +112,6 @@ export const instructionFields: INodeProperties[] = [
 				default: '',
 				description: 'Category to organize instructions',
 			},
-			{
-				displayName: 'Requires User Context',
-				name: 'requires_user_context',
-				type: 'boolean',
-				default: false,
-				description: 'Whether the script requires user context to run',
-			},
 		],
 	},
 
@@ -139,7 +126,7 @@ export const instructionFields: INodeProperties[] = [
 		displayOptions: {
 			show: {
 				resource: ['instruction'],
-				operation: ['delete', 'get', 'update', 'execute'],
+				operation: ['delete', 'get', 'execute'],
 			},
 		},
 		default: '',
@@ -211,59 +198,6 @@ export const instructionFields: INodeProperties[] = [
 	},
 
 	// ----------------------------------
-	//         instruction:update
-	// ----------------------------------
-	{
-		displayName: 'Update Fields',
-		name: 'updateFields',
-		type: 'collection',
-		placeholder: 'Add Field',
-		default: {},
-		displayOptions: {
-			show: {
-				resource: ['instruction'],
-				operation: ['update'],
-			},
-		},
-		options: [
-			{
-				displayName: 'Name',
-				name: 'name',
-				type: 'string',
-				default: '',
-				description: 'Instruction name',
-			},
-			{
-				displayName: 'Description',
-				name: 'description',
-				type: 'string',
-				typeOptions: {
-					rows: 3,
-				},
-				default: '',
-				description: 'Description of what this instruction does',
-			},
-			{
-				displayName: 'Script',
-				name: 'script',
-				type: 'string',
-				typeOptions: {
-					rows: 15,
-				},
-				default: '',
-				description: 'Shell script to execute on devices',
-			},
-			{
-				displayName: 'Category',
-				name: 'category',
-				type: 'string',
-				default: '',
-				description: 'Category to organize instructions',
-			},
-		],
-	},
-
-	// ----------------------------------
 	//         instruction:execute
 	// ----------------------------------
 	{
@@ -283,14 +217,9 @@ export const instructionFields: INodeProperties[] = [
 				value: 'device',
 				description: 'Execute on specific devices',
 			},
-			{
-				name: 'Policy',
-				value: 'policy',
-				description: 'Execute on all devices in a policy',
-			},
 		],
 		default: 'device',
-		description: 'Whether to execute on specific devices or a policy',
+		description: 'API v2 execution is supported for device targets',
 	},
 	{
 		displayName: 'Device Name or ID',
@@ -309,23 +238,5 @@ export const instructionFields: INodeProperties[] = [
 		},
 		default: '',
 		description: 'The device to execute on. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code-examples/expressions/">expression</a>.',
-	},
-	{
-		displayName: 'Policy Name or ID',
-		name: 'policyId',
-		type: 'options',
-		typeOptions: {
-			loadOptionsMethod: 'getPolicies',
-		},
-		required: true,
-		displayOptions: {
-			show: {
-				resource: ['instruction'],
-				operation: ['execute'],
-				targetType: ['policy'],
-			},
-		},
-		default: '',
-		description: 'The policy to execute on. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code-examples/expressions/">expression</a>.',
 	},
 ];

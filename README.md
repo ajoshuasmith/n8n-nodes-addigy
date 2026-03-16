@@ -1,8 +1,8 @@
 # n8n-nodes-addigy
 
-![Banner](https://addigy.com/wp-content/uploads/2022/11/Addigy-Logo-Horizontal.png)
+![Addigy logo](https://raw.githubusercontent.com/ajoshuasmith/n8n-nodes-addigy/main/nodes/Addigy/addigy.svg)
 
-This is an n8n community node that lets you interact with [Addigy](https://addigy.com/) - a full-featured Apple MDM (Mobile Device Management) platform.
+`n8n-nodes-addigy` is an n8n community node for working with the [Addigy](https://addigy.com/) API v2.
 
 [n8n](https://n8n.io/) is a [fair-code licensed](https://docs.n8n.io/reference/license/) workflow automation platform.
 
@@ -49,9 +49,10 @@ RUN cd /usr/local/lib/node_modules/n8n && npm install @joshuanode/n8n-nodes-addi
 
 ## Prerequisites
 
-- n8n installed (version 0.220.0 or above)
+- n8n installed
 - An active Addigy account
 - Addigy API v2 credentials
+- Your Addigy organization ID
 
 ## Credentials
 
@@ -63,13 +64,7 @@ To use this node, you'll need to configure your Addigy API credentials in n8n.
 2. Navigate to **Account > API Tokens**
 3. Click **Create New Token**
 4. Give your token a descriptive name (e.g., "n8n Integration")
-5. Select the appropriate permissions for your use case:
-   - **Devices**: Read, Write (if you need to update devices or run commands)
-   - **Policies**: Read, Write (if you need to manage policies)
-   - **Alerts**: Read, Write (if you need to manage alerts)
-   - **Applications**: Read, Write (if you need to deploy/remove applications)
-   - **Facts**: Read, Write (if you need to manage custom facts)
-   - **Instructions**: Read, Write (if you need to create/execute instructions)
+5. Select the permissions required for the resources you plan to automate
 6. Click **Create Token**
 7. Copy the generated token immediately (you won't be able to see it again)
 
@@ -79,20 +74,20 @@ To use this node, you'll need to configure your Addigy API credentials in n8n.
 2. Click on **Create New Credential**
 3. Enter your API Token
 4. Enter your Organization ID
-5. Enter your Addigy base URL (default: `https://api.addigy.com`)
+5. Enter your Addigy base URL if you are not using the default `https://api.addigy.com`
 6. Click **Save**
 
-The credential will automatically test the connection by attempting to fetch devices.
+The credential test uses the Addigy permissions endpoint.
 
 ## Compatibility
 
-- Tested with n8n version 1.0.0+
+- Tested locally with the current n8n community node toolchain in this repository
 - Works with Addigy API v2
 - Compatible with self-hosted and cloud n8n instances
 
 ## Features
 
-This node provides comprehensive access to the Addigy API, allowing you to automate Apple device management tasks.
+This node exposes the Addigy operations implemented in this repository today. Several actions are limited by what Addigy currently exposes through API v2, so the README intentionally documents the implemented behavior rather than the full Addigy product surface.
 
 ### Resources
 
@@ -102,8 +97,9 @@ The Addigy node supports the following resources:
 Manage and monitor Apple devices in your organization.
 - Get device information by ID
 - List all devices with filtering options
-- Get device facts (system information, hardware details, installed software)
-- Update device properties (name, policy assignment, notes)
+- Count total devices with optional filters
+- Get device facts
+- Reassign a device to a policy
 - Run commands on devices (restart, shutdown, lock, clear passcode, refresh facts)
 
 #### 📋 Policy
@@ -117,23 +113,22 @@ Organize devices into policies with specific configurations.
 #### 🚨 Alert
 Monitor and respond to alerts from your device fleet.
 - Get alert details
-- List alerts with filters (device, policy, status, severity, date range)
-- Resolve alerts with optional notes
+- List alerts with filters (device, status, severity, date range)
+- Resolve alerts
 
 #### 📦 Application
 Deploy and manage applications across your device fleet.
 - Get application information
-- List available applications (public and custom software)
-- Deploy applications to devices or policies
-- Remove applications from devices or policies
-- Configure auto-update and installation timing
+- List available smart software
+- Assign smart software to a policy
+- Remove smart software from a policy
 
 #### 📊 Fact
 Create and manage custom facts to collect device information.
-- Create custom facts with shell scripts
+- Create custom facts
 - Get fact definitions
 - List all custom facts
-- Update fact collection scripts and frequency
+- Update fact metadata
 - Delete custom facts
 
 #### ⚙️ Instruction
@@ -141,9 +136,14 @@ Create and execute custom scripts on devices.
 - Create reusable instruction scripts
 - Get instruction details
 - List all instructions
-- Update instruction scripts and metadata
 - Delete instructions
-- Execute instructions on specific devices or policies
+- Execute instructions on a specific device
+
+#### 💳 Billing
+Access billing data for your organization.
+- Get billing summary data
+- Get billing account details
+- Get billing invoices
 
 ## Usage
 
@@ -152,18 +152,18 @@ Create and execute custom scripts on devices.
 1. Add an Addigy node to your workflow
 2. Select **Device** as the resource
 3. Select **Get Many** as the operation
-4. Configure filters if needed (policy, status, device type)
+4. Configure filters if needed
 5. Execute the workflow
 
 ### Advanced Example: Automated Alert Response
 
-Create a workflow that monitors for critical alerts and automatically resolves them after running a remediation instruction:
+Create a workflow that monitors for critical alerts and resolves them after running a remediation instruction on the affected device:
 
 1. **Schedule Trigger**: Run every 5 minutes
 2. **Addigy Node (Get Alerts)**:
    - Resource: Alert
    - Operation: Get Many
-   - Filters: Status = Open, Severity = Critical
+   - Filters: Status = Open (Unattended), Severity = Critical
 3. **IF Node**: Check if alerts exist
 4. **Addigy Node (Execute Instruction)**:
    - Resource: Instruction
@@ -207,10 +207,11 @@ Schedule Trigger → Addigy (Get Alerts) → Filter (compliance alerts) → Jira
 ### Device Operations
 | Operation | Description |
 |-----------|-------------|
+| Count | Get total number of devices |
 | Get | Retrieve a device by ID |
 | Get Many | List devices with optional filters |
 | Get Facts | Retrieve all facts for a specific device |
-| Update | Update device properties |
+| Update | Assign a device to a policy |
 | Run Command | Execute commands (restart, shutdown, lock, etc.) |
 
 ### Policy Operations
@@ -233,9 +234,9 @@ Schedule Trigger → Addigy (Get Alerts) → Filter (compliance alerts) → Jira
 | Operation | Description |
 |-----------|-------------|
 | Get | Retrieve an application by ID |
-| Get Many | List available applications |
-| Deploy | Deploy an application to devices/policies |
-| Remove | Remove an application from devices/policies |
+| Get Many | List available smart software |
+| Deploy | Assign smart software to a policy |
+| Remove | Remove smart software from a policy |
 
 ### Fact Operations
 | Operation | Description |
@@ -252,24 +253,21 @@ Schedule Trigger → Addigy (Get Alerts) → Filter (compliance alerts) → Jira
 | Create | Create a new instruction |
 | Get | Retrieve an instruction by ID |
 | Get Many | List all instructions |
-| Update | Update an instruction |
 | Delete | Delete an instruction |
-| Execute | Run an instruction on devices/policies |
+| Execute | Run an instruction on a device |
+
+### Billing Operations
+| Operation | Description |
+|-----------|-------------|
+| Get Data | Retrieve billing summary data |
+| Get Account | Retrieve billing account details |
+| Get Invoices | Retrieve billing invoices |
 
 ## Known Issues
 
 - **Rate Limiting**: The Addigy API has a rate limit of 1,000 requests per 10 seconds. If exceeded, requests will be rejected for 24 hours. The node does not currently implement automatic rate limiting.
 - **Pagination**: When fetching large datasets, be mindful of performance. Use the "Return All" option carefully.
-- **Logo**: The current node icon is a placeholder. Replace with the official Addigy logo from their [media kit](https://addigy.com/media-kit/) for production use.
-
-## Version History
-
-### 1.0.0 (Initial Release)
-- Support for 6 main resources: Device, Policy, Alert, Application, Fact, and Instruction
-- API v2 authentication
-- Comprehensive filtering and pagination
-- Dynamic dropdowns for devices, policies, and applications
-- Full CRUD operations where applicable
+- **API v2 Gaps**: Some Addigy product actions are not exposed as direct API v2 endpoints. In those cases the node exposes the closest supported workflow-safe behavior and labels the operation accordingly.
 
 ## Resources
 
@@ -307,7 +305,3 @@ Addigy is a full-featured Apple MDM (Mobile Device Management) platform that hel
 ## Disclaimer
 
 This is an unofficial community node and is not affiliated with or endorsed by Addigy. Use at your own risk.
-
----
-
-Made with ❤️ for the n8n community

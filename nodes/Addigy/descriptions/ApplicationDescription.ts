@@ -15,7 +15,7 @@ export const applicationOperations: INodeProperties[] = [
 			{
 				name: 'Deploy',
 				value: 'deploy',
-				description: 'Deploy an application to devices',
+				description: 'Assign smart software to a policy',
 				action: 'Deploy an application',
 			},
 			{
@@ -33,7 +33,7 @@ export const applicationOperations: INodeProperties[] = [
 			{
 				name: 'Remove',
 				value: 'remove',
-				description: 'Remove an application from devices',
+				description: 'Unassign smart software from a policy',
 				action: 'Remove an application',
 			},
 		],
@@ -106,37 +106,16 @@ export const applicationFields: INodeProperties[] = [
 				operation: ['getAll'],
 			},
 		},
-		options: [
-			{
-				displayName: 'Name',
-				name: 'name',
-				type: 'string',
-				default: '',
-				description: 'Filter by application name',
-			},
-			{
-				displayName: 'Category',
-				name: 'category',
-				type: 'options',
-				options: [
-					{
-						name: 'Public Software',
-						value: 'public',
-					},
-					{
-						name: 'Custom Software',
-						value: 'custom',
-					},
-					{
-						name: 'All',
-						value: 'all',
-					},
-				],
-				default: 'all',
-				description: 'Filter by application category',
-			},
-		],
-	},
+			options: [
+				{
+					displayName: 'Name',
+					name: 'name',
+					type: 'string',
+					default: '',
+					description: 'Filter by application name',
+				},
+			],
+		},
 
 	// ----------------------------------
 	//         application:deploy
@@ -154,36 +133,13 @@ export const applicationFields: INodeProperties[] = [
 		},
 		options: [
 			{
-				name: 'Device',
-				value: 'device',
-				description: 'Deploy to specific devices',
-			},
-			{
 				name: 'Policy',
 				value: 'policy',
-				description: 'Deploy to all devices in a policy',
+				description: 'Assign to all devices in a policy',
 			},
 		],
-		default: 'device',
-		description: 'Whether to deploy to specific devices or a policy',
-	},
-	{
-		displayName: 'Device Name or ID',
-		name: 'deviceId',
-		type: 'options',
-		typeOptions: {
-			loadOptionsMethod: 'getDevices',
-		},
-		required: true,
-		displayOptions: {
-			show: {
-				resource: ['application'],
-				operation: ['deploy', 'remove'],
-				targetType: ['device'],
-			},
-		},
-		default: '',
-		description: 'The device to deploy to. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code-examples/expressions/">expression</a>.',
+		default: 'policy',
+		description: 'API v2 supports policy assignment for this operation',
 	},
 	{
 		displayName: 'Policy Name or ID',
@@ -202,34 +158,5 @@ export const applicationFields: INodeProperties[] = [
 		},
 		default: '',
 		description: 'The policy to deploy to. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code-examples/expressions/">expression</a>.',
-	},
-	{
-		displayName: 'Additional Fields',
-		name: 'additionalFields',
-		type: 'collection',
-		placeholder: 'Add Field',
-		default: {},
-		displayOptions: {
-			show: {
-				resource: ['application'],
-				operation: ['deploy'],
-			},
-		},
-		options: [
-			{
-				displayName: 'Install Immediately',
-				name: 'install_immediately',
-				type: 'boolean',
-				default: true,
-				description: 'Whether to install immediately or wait for the next policy sync',
-			},
-			{
-				displayName: 'Auto Update',
-				name: 'auto_update',
-				type: 'boolean',
-				default: false,
-				description: 'Whether to automatically update the application',
-			},
-		],
 	},
 ];

@@ -127,20 +127,24 @@ export const alertFields: INodeProperties[] = [
 				type: 'options',
 				options: [
 					{
-						name: 'Open',
-						value: 'open',
+						name: 'Open (Unattended)',
+						value: 'unattended',
+					},
+					{
+						name: 'Acknowledged',
+						value: 'acknowledged',
 					},
 					{
 						name: 'Resolved',
-						value: 'resolved',
+						value: 'Resolved',
 					},
 					{
 						name: 'All',
 						value: 'all',
 					},
 				],
-				default: 'open',
-				description: 'Filter by alert status',
+				default: 'unattended',
+				description: 'Filter by alert status using Addigy alert states',
 			},
 			{
 				displayName: 'Severity',

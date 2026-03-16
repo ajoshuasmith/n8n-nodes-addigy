@@ -13,6 +13,12 @@ export const deviceOperations: INodeProperties[] = [
 		},
 		options: [
 			{
+				name: 'Count',
+				value: 'count',
+				description: 'Get total number of devices',
+				action: 'Count devices',
+			},
+			{
 				name: 'Get',
 				value: 'get',
 				description: 'Get a device by ID',
@@ -176,6 +182,182 @@ export const deviceFields: INodeProperties[] = [
 				default: 'mac',
 				description: 'Filter by device type',
 			},
+			{
+				displayName: 'Fact Filters',
+				name: 'factFilters',
+				type: 'fixedCollection',
+				typeOptions: {
+					multipleValues: true,
+				},
+				placeholder: 'Add Fact Filter',
+				default: {},
+				options: [
+					{
+						name: 'factFilter',
+						displayName: 'Fact Filter',
+						values: [
+							{
+								displayName: 'Fact Name',
+								name: 'factName',
+								type: 'options',
+								typeOptions: {
+									loadOptionsMethod: 'getDeviceFactKeys',
+								},
+								default: '',
+								description: 'Fact key to filter by. Choose from detected facts, or use an expression for custom keys.',
+							},
+							{
+								displayName: 'Operator',
+								name: 'operator',
+								type: 'options',
+								options: [
+									{ name: 'Equals', value: 'equals' },
+									{ name: 'Contains', value: 'contains' },
+									{ name: 'Starts With', value: 'starts_with' },
+									{ name: 'Ends With', value: 'ends_with' },
+									{ name: 'Greater Than', value: 'greater_than' },
+									{ name: 'Less Than', value: 'less_than' },
+									{ name: 'Exists', value: 'exists' },
+								],
+								default: 'equals',
+								description: 'Comparison operation for the fact filter',
+							},
+							{
+								displayName: 'Type',
+								name: 'type',
+								type: 'options',
+								options: [
+									{ name: 'String', value: 'string' },
+									{ name: 'Number', value: 'number' },
+									{ name: 'Boolean', value: 'boolean' },
+									{ name: 'Date', value: 'date' },
+								],
+								default: 'string',
+								description: 'Data type for the value comparison',
+							},
+							{
+								displayName: 'Value',
+								name: 'value',
+								type: 'string',
+								default: '',
+								description: 'Filter value. Supports expressions.',
+							},
+							{
+								displayName: 'Range Value',
+								name: 'rangeValue',
+								type: 'string',
+								default: '',
+								description: 'Optional second value for range-style comparisons',
+							},
+						],
+					},
+				],
+				description: 'Advanced Addigy fact filters (mapped to query.filters)',
+			},
+		],
+	},
+	{
+		displayName: 'Count Filters',
+		name: 'countFilters',
+		type: 'collection',
+		placeholder: 'Add Filter',
+		default: {},
+		displayOptions: {
+			show: {
+				resource: ['device'],
+				operation: ['count'],
+			},
+		},
+		options: [
+			{
+				displayName: 'Policy Name or ID',
+				name: 'policyId',
+				type: 'options',
+				typeOptions: {
+					loadOptionsMethod: 'getPolicies',
+				},
+				default: '',
+				description: 'Count devices in a specific policy. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code-examples/expressions/">expression</a>.',
+			},
+			{
+				displayName: 'Search Any',
+				name: 'searchAny',
+				type: 'string',
+				default: '',
+				description: 'Search text matched across device fields',
+			},
+			{
+				displayName: 'Fact Filters',
+				name: 'factFilters',
+				type: 'fixedCollection',
+				typeOptions: {
+					multipleValues: true,
+				},
+				placeholder: 'Add Fact Filter',
+				default: {},
+				options: [
+					{
+						name: 'factFilter',
+						displayName: 'Fact Filter',
+						values: [
+							{
+								displayName: 'Fact Name',
+								name: 'factName',
+								type: 'options',
+								typeOptions: {
+									loadOptionsMethod: 'getDeviceFactKeys',
+								},
+								default: '',
+								description: 'Fact key to filter by. Choose from detected facts, or use an expression for custom keys.',
+							},
+							{
+								displayName: 'Operator',
+								name: 'operator',
+								type: 'options',
+								options: [
+									{ name: 'Equals', value: 'equals' },
+									{ name: 'Contains', value: 'contains' },
+									{ name: 'Starts With', value: 'starts_with' },
+									{ name: 'Ends With', value: 'ends_with' },
+									{ name: 'Greater Than', value: 'greater_than' },
+									{ name: 'Less Than', value: 'less_than' },
+									{ name: 'Exists', value: 'exists' },
+								],
+								default: 'equals',
+								description: 'Comparison operation for the fact filter',
+							},
+							{
+								displayName: 'Type',
+								name: 'type',
+								type: 'options',
+								options: [
+									{ name: 'String', value: 'string' },
+									{ name: 'Number', value: 'number' },
+									{ name: 'Boolean', value: 'boolean' },
+									{ name: 'Date', value: 'date' },
+								],
+								default: 'string',
+								description: 'Data type for the value comparison',
+							},
+							{
+								displayName: 'Value',
+								name: 'value',
+								type: 'string',
+								default: '',
+								description: 'Filter value. Supports expressions.',
+							},
+							{
+								displayName: 'Range Value',
+								name: 'rangeValue',
+								type: 'string',
+								default: '',
+								description: 'Optional second value for range-style comparisons',
+							},
+						],
+					},
+				],
+				description: 'Advanced Addigy fact filters (mapped to query.filters)',
+			},
 		],
 	},
 
@@ -196,13 +378,6 @@ export const deviceFields: INodeProperties[] = [
 		},
 		options: [
 			{
-				displayName: 'Name',
-				name: 'name',
-				type: 'string',
-				default: '',
-				description: 'Device name',
-			},
-			{
 				displayName: 'Policy Name or ID',
 				name: 'policyId',
 				type: 'options',
@@ -211,16 +386,6 @@ export const deviceFields: INodeProperties[] = [
 				},
 				default: '',
 				description: 'Assign device to a policy. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code-examples/expressions/">expression</a>.',
-			},
-			{
-				displayName: 'Notes',
-				name: 'notes',
-				type: 'string',
-				typeOptions: {
-					rows: 4,
-				},
-				default: '',
-				description: 'Device notes',
 			},
 		],
 	},

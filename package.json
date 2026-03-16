@@ -1,6 +1,6 @@
 {
   "name": "@joshuanode/n8n-nodes-addigy",
-  "version": "0.0.3",
+  "version": "0.0.7",
   "description": "n8n community node for Addigy API integration",
   "keywords": [
     "n8n-community-node-package",
@@ -12,6 +12,9 @@
   ],
   "license": "MIT",
   "homepage": "https://github.com/ajoshuasmith/n8n-nodes-addigy",
+  "bugs": {
+    "url": "https://github.com/ajoshuasmith/n8n-nodes-addigy/issues"
+  },
   "author": {
     "name": "Joshua Smith",
     "email": "ajoshuasmith@users.noreply.github.com"
@@ -59,6 +62,6 @@
     "n8n-workflow": "*"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=20.0.0"
   }
 }
