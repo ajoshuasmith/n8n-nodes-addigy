@@ -1,6 +1,6 @@
 {
   "name": "@joshuanode/n8n-nodes-addigy",
-  "version": "0.0.7",
+  "version": "0.1.0",
   "description": "n8n community node for Addigy API integration",
   "keywords": [
     "n8n-community-node-package",
@@ -23,7 +23,8 @@
     "type": "git",
     "url": "git+https://github.com/ajoshuasmith/n8n-nodes-addigy.git"
   },
-  "main": "index.js",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "publishConfig": {
     "access": "public"
   },
@@ -62,6 +63,6 @@
     "n8n-workflow": "*"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=18.17.0"
   }
 }

@@ -3,9 +3,11 @@ import {
 	INodeExecutionData,
 	INodeType,
 	INodeTypeDescription,
+	INode,
 	ILoadOptionsFunctions,
 	INodePropertyOptions,
 	IDataObject,
+	NodeOperationError,
 } from 'n8n-workflow';
 
 import {
@@ -36,6 +38,33 @@ function normalizeAlertStatus(status: string): string {
 	};
 
 	return statusMap[status.toLowerCase()] ?? status;
+}
+
+function parseJsonObject(value: string, label: string, node: INode): IDataObject {
+	const trimmed = value.trim();
+	if (!trimmed) {
+		return {};
+	}
+
+	try {
+		const parsed = JSON.parse(trimmed) as unknown;
+		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+			throw new Error(`${label} must be a JSON object`);
+		}
+		return parsed as IDataObject;
+	} catch (error) {
+		throw new NodeOperationError(node, `Invalid JSON in ${label}: ${(error as Error).message}`);
+	}
+}
+
+function normalizeApiPath(path: string): string {
+	if (!path.startsWith('/')) {
+		throw new Error('API path must start with /. Full external URLs are not allowed.');
+	}
+	if (path.startsWith('//') || path.includes('://')) {
+		throw new Error('API path must be relative to the Addigy API base URL.');
+	}
+	return path;
 }
 
 export class Addigy implements INodeType {
@@ -76,13 +105,18 @@ export class Addigy implements INodeType {
 						name: 'Alert',
 						value: 'alert',
 					},
-					{
-						name: 'Application',
-						value: 'application',
-					},
-					{
-						name: 'Billing',
-						value: 'billing',
+						{
+							name: 'Application',
+							value: 'application',
+						},
+						{
+							name: 'API Request',
+							value: 'apiRequest',
+							description: 'Call any Addigy API v2 endpoint by path',
+						},
+						{
+							name: 'Billing',
+							value: 'billing',
 					},
 					{
 						name: 'Device',
@@ -100,10 +134,88 @@ export class Addigy implements INodeType {
 						name: 'Policy',
 						value: 'policy',
 					},
-				],
-				default: 'device',
-			},
-			...deviceOperations,
+					],
+					default: 'device',
+				},
+				{
+					displayName: 'Operation',
+					name: 'operation',
+					type: 'options',
+					noDataExpression: true,
+					displayOptions: {
+						show: {
+							resource: ['apiRequest'],
+						},
+					},
+					options: [
+						{
+							name: 'Request',
+							value: 'request',
+							action: 'Make an API request',
+						},
+					],
+					default: 'request',
+				},
+				{
+					displayName: 'Method',
+					name: 'apiMethod',
+					type: 'options',
+					displayOptions: {
+						show: {
+							resource: ['apiRequest'],
+							operation: ['request'],
+						},
+					},
+					options: [
+						{ name: 'DELETE', value: 'DELETE' },
+						{ name: 'GET', value: 'GET' },
+						{ name: 'PATCH', value: 'PATCH' },
+						{ name: 'POST', value: 'POST' },
+						{ name: 'PUT', value: 'PUT' },
+					],
+					default: 'GET',
+				},
+				{
+					displayName: 'Path',
+					name: 'apiPath',
+					type: 'string',
+					required: true,
+					default: '/o/{organization_id}/devices',
+					description: 'Path relative to the Addigy API v2 base URL. Must start with /.',
+					displayOptions: {
+						show: {
+							resource: ['apiRequest'],
+							operation: ['request'],
+						},
+					},
+				},
+				{
+					displayName: 'Query Parameters JSON',
+					name: 'apiQueryJson',
+					type: 'json',
+					default: '{}',
+					description: 'JSON object sent as query parameters',
+					displayOptions: {
+						show: {
+							resource: ['apiRequest'],
+							operation: ['request'],
+						},
+					},
+				},
+				{
+					displayName: 'Body JSON',
+					name: 'apiBodyJson',
+					type: 'json',
+					default: '{}',
+					description: 'JSON object sent as the request body for methods that support a body',
+					displayOptions: {
+						show: {
+							resource: ['apiRequest'],
+							operation: ['request'],
+						},
+					},
+				},
+				...deviceOperations,
 			...deviceFields,
 			...policyOperations,
 			...policyFields,
@@ -145,10 +257,37 @@ export class Addigy implements INodeType {
 
 		for (let i = 0; i < items.length; i++) {
 			try {
-				const credentials = await this.getCredentials('addigyApi');
-				const organizationId = credentials.organizationId as string;
+					const credentials = await this.getCredentials('addigyApi');
+					const organizationId = credentials.organizationId as string;
 
-				if (resource === 'device') {
+					if (resource === 'apiRequest') {
+						const method = this.getNodeParameter('apiMethod', i) as 'DELETE' | 'GET' | 'PATCH' | 'POST' | 'PUT';
+						const path = normalizeApiPath(this.getNodeParameter('apiPath', i) as string).replaceAll(
+							'{organization_id}',
+							organizationId,
+						);
+						const qs = parseJsonObject(
+							this.getNodeParameter('apiQueryJson', i, '{}') as string,
+							'Query Parameters JSON',
+							this.getNode(),
+						);
+						const body = parseJsonObject(
+							this.getNodeParameter('apiBodyJson', i, '{}') as string,
+							'Body JSON',
+							this.getNode(),
+						);
+						const responseData = await addigyApiRequest.call(this, method, path, body, qs);
+
+						if (Array.isArray(responseData)) {
+							responseData.forEach((item: IDataObject) => {
+								returnData.push({ json: item, pairedItem: { item: i } });
+							});
+						} else {
+							returnData.push({ json: asDataObject(responseData), pairedItem: { item: i } });
+						}
+					}
+
+					if (resource === 'device') {
 					const queryDevices = async (page: number, perPage: number, query: IDataObject = {}) => {
 						return addigyApiRequest.call(
 							this,
